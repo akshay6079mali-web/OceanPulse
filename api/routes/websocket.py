@@ -75,29 +75,35 @@ async def global_ais_worker():
                         raw_lon, raw_lat = geom.get('coordinates', [0, 0])
                         
                         # Map vessels to Mumbai/Arabian Sea EEZ
-                        # Baltic Sea (~60N, 20E) → Arabian Sea (~20N, 69E)
                         lat = round(raw_lat + (-40), 6)
                         lon = round(raw_lon + 49, 6)
                         
                         if not is_strictly_ocean(lat, lon): continue
                         
-                        existing = live_vessels.get(mmsi, {})
-                        trail = existing.get("trail", [])
+                        existing = live_vessels.get(mmsi)
                         
-                        meta = VESSEL_METADATA.get(int(mmsi), {})
-                        
-                        new_vessels[mmsi] = {
-                            "mmsi": mmsi,
-                            "name": meta.get("name") or f"MMSI {mmsi}",
-                            "callsign": meta.get("callsign", "N/A"),
-                            "destination": meta.get("destination", "AT SEA"),
-                            "lat": lat,
-                            "lon": lon,
-                            "speed": sog,
-                            "heading": cog,
-                            "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-                            "trail": trail
-                        }
+                        if existing:
+                            # KEEP existing simulated position — only update speed/heading
+                            # This prevents backtrack from bouncing between API and simulated positions
+                            existing["speed"] = sog
+                            existing["heading"] = cog
+                            existing["timestamp"] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+                            new_vessels[mmsi] = existing
+                        else:
+                            # New vessel — initialize from API
+                            meta = VESSEL_METADATA.get(int(mmsi), {})
+                            new_vessels[mmsi] = {
+                                "mmsi": mmsi,
+                                "name": meta.get("name") or f"MMSI {mmsi}",
+                                "callsign": meta.get("callsign", "N/A"),
+                                "destination": meta.get("destination", "AT SEA"),
+                                "lat": lat,
+                                "lon": lon,
+                                "speed": sog,
+                                "heading": cog,
+                                "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                                "trail": []
+                            }
                         if len(new_vessels) >= 80: break
                         
                     if new_vessels:
