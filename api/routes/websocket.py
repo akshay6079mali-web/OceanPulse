@@ -125,19 +125,19 @@ async def global_ais_worker():
                         
                         raw_lon, raw_lat = geom.get('coordinates', [0, 0])
                         
-                        # Distribute ships globally using deterministic offsets based on MMSI
+                        # Distribute ships — concentrate 70% near Mumbai EEZ for presentation
                         # Base Baltic Sea is around 60N, 20E
                         offsets = [
-                            (0, 0),         # Baltic Sea (Original)
-                            (-40, 49),      # Arabian Sea / Mumbai
-                            (-35, -110),    # Gulf of Mexico
-                            (-25, -5),      # Mediterranean
-                            (-45, 95),      # South China Sea
-                            (-60, -20),     # West Africa / Gulf of Guinea
-                            (-40, -160),    # Pacific Ocean
-                            (-20, -90),     # US East Coast
-                            (-10, -80),     # Caribbean
-                            (-65, 50),      # Indian Ocean
+                            (-40, 49),      # Arabian Sea / Mumbai (index 0)
+                            (-40, 49),      # Arabian Sea / Mumbai (index 1)
+                            (-40, 49),      # Arabian Sea / Mumbai (index 2)
+                            (-40, 49),      # Arabian Sea / Mumbai (index 3)
+                            (-40, 49),      # Arabian Sea / Mumbai (index 4)
+                            (-40, 49),      # Arabian Sea / Mumbai (index 5)
+                            (-40, 49),      # Arabian Sea / Mumbai (index 6)
+                            (-25, -5),      # Mediterranean (index 7)
+                            (-35, -110),    # Gulf of Mexico (index 8)
+                            (0, 0),         # Baltic Sea Original (index 9)
                         ]
                         
                         mmsi_int = int(mmsi) if mmsi.isdigit() else 0
