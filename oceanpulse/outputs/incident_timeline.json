@@ -1,0 +1,23 @@
+[
+  {
+    "id": "INC-001",
+    "timestamp": "2023-10-01T10:30:00Z",
+    "coordinates": {
+      "lat": 18.93,
+      "lon": 72.73
+    },
+    "area_km2": 4.5,
+    "suspect_mmsi": "123456789"
+  },
+  {
+    "id": "SAR-8b7f4ae7",
+    "timestamp": "2026-09-28T18:38:42Z",
+    "coordinates": {
+      "lat": 18.93,
+      "lon": 72.5
+    },
+    "area_km2": 4.6782382392024795,
+    "suspect_mmsi": "123456789",
+    "confidence": 85
+  }
+]

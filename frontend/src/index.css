@@ -1,0 +1,150 @@
+@import "tailwindcss";
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #F8FAFC;
+  color: #0F172A;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.map-layer, .leaflet-container {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 0 !important;
+  background-color: #18181B !important;
+}
+
+/* Restore dark mode map inversion */
+.leaflet-layer,
+.leaflet-control-zoom-in,
+.leaflet-control-zoom-out,
+.leaflet-control-attribution {
+  filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(90%);
+}
+
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  color: #0F172A !important;
+  border: 1px solid #E2E8F0 !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+}
+
+.hud-container {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 1000 !important;
+  pointer-events: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  padding: 12px 16px !important;
+  box-sizing: border-box !important;
+}
+
+.hud-interactive,
+.panel,
+header,
+aside,
+footer,
+button,
+input,
+select,
+table {
+  pointer-events: auto !important;
+}
+
+/* White/Blue minimal styling on all HUD panels */
+.tactical-panel {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid #E2E8F0 !important;
+  border-radius: 6px !important;
+  color: #0F172A !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05) !important;
+}
+
+.hud-container input[type="text"],
+.hud-container input[type="number"],
+.hud-container input[type="password"],
+.hud-container input[type="search"],
+.hud-container select {
+  background-color: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+  color: #0F172A !important;
+  border-radius: 4px !important;
+  padding: 6px 10px !important;
+  font-family: 'JetBrains Mono', Consolas, monospace !important;
+  font-size: 13px !important;
+  outline: none !important;
+}
+
+.hud-container input.search-input {
+  padding-left: 36px !important;
+}
+
+.hud-container input:focus, .hud-container select:focus {
+  border-color: #0056b3 !important;
+}
+
+.tactical-btn {
+  background-color: #F8FAFC !important;
+  border: 1px solid #E2E8F0 !important;
+  color: #0F172A !important;
+  border-radius: 4px !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease;
+}
+.tactical-btn:hover {
+  background-color: #F1F5F9 !important;
+  border-color: #CBD5E1 !important;
+}
+
+.tactical-btn-primary {
+  background-color: #0056b3 !important; /* EMSA Blue */
+  border: 1px solid #004085 !important;
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+  border-radius: 4px !important;
+  padding: 8px 12px !important;
+  cursor: pointer !important;
+}
+.tactical-btn-primary:hover {
+  background-color: #004085 !important;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+
+/* Custom scrollbar for light panels */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+.leaflet-marker-icon {
+  transition: transform 0.95s linear;
+}

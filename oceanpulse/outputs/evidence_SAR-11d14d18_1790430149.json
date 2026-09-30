@@ -1,0 +1,45 @@
+{
+  "scene_id": "SAR-11d14d18",
+  "epoch": "1790430149",
+  "sar_hash": "e9f72ac11d9f45a43907d24f0ca267641614df0501529d3a4da8385f25d95b47",
+  "ais_hash": "a8c170987793286749f2993036395279a6de8e7b8a4f2cca90fb6a4a06621a46",
+  "wind_speed_knots": 5.0,
+  "slick": {
+    "coordinates": [
+      {
+        "lat": 5.01,
+        "lon": 4.99
+      },
+      {
+        "lat": 5.01,
+        "lon": 5.01
+      },
+      {
+        "lat": 4.99,
+        "lon": 5.01
+      },
+      {
+        "lat": 4.99,
+        "lon": 4.99
+      }
+    ],
+    "area_km2": 4.926904684006265,
+    "centroid": {
+      "lat": 5.0,
+      "lon": 5.0
+    }
+  },
+  "drift_vectors": [
+    {
+      "timestamp": "2026-09-26T13:42:29.798271+00:00",
+      "coordinates": {
+        "lat": 5.0,
+        "lon": 5.0
+      }
+    }
+  ],
+  "suspects": [],
+  "primary_suspect": null,
+  "jurisdiction_breach": false,
+  "evidence_hash": "ee965458ea51f0fbc00a42a624515e7ff5824993205e398bbfb04ebd43abf1c3"
+}
