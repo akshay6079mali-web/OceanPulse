@@ -1,79 +1,134 @@
 """
-Lightweight ocean/land check using coastline bounding boxes.
-Replaces global-land-mask (which loads ~200MB NASA dataset into RAM)
-to stay within Render's 512MB free tier.
+Lightweight ocean/land check for OceanPulse.
+Replaces global-land-mask (200MB+ RAM) with precise coastline segments.
 
-Uses known land bounding boxes around the Indian Ocean / Arabian Sea region
-where OceanPulse operates. Any point inside a land box is rejected.
+Strategy: Default to OCEAN (True). Only reject points that fall inside
+precise land polygons. Uses coastal longitude boundaries at each latitude
+band to accurately distinguish ocean from land near the Indian west coast.
 """
 
 import math
 
-# Major land masses near the operating area (lat_min, lat_max, lon_min, lon_max)
-LAND_BOXES = [
-    # Indian subcontinent (west coast - Mumbai, Goa, Kerala)
-    (8.0, 37.0, 68.0, 97.5),
-    # Sri Lanka
-    (5.9, 9.85, 79.5, 81.9),
-    # Maldives main islands (approximate)
-    (0.5, 7.1, 72.6, 73.8),
-    # Arabian Peninsula (Oman, UAE, Saudi)
-    (12.0, 32.0, 34.0, 60.0),
-    # East Africa coast (Somalia, Kenya, Tanzania)
-    (-12.0, 12.0, 29.0, 52.0),
-    # Madagascar
-    (-26.0, -11.5, 43.0, 50.6),
-    # Southeast Asia (Myanmar, Thailand, Malaysia)
-    (-8.0, 28.0, 92.0, 141.0),
-    # Pakistan
-    (23.5, 37.0, 60.0, 77.5),
-    # Iran
-    (25.0, 40.0, 44.0, 63.5),
+# Indian West Coast - precise longitude where land begins at each latitude band
+# Format: (lat_min, lat_max, land_starts_at_lon)
+# Points with lon >= land_starts_at_lon are on land
+INDIA_WEST_COAST = [
+    # Kerala coast
+    (8.0, 10.0, 75.8),
+    # Karnataka coast  
+    (10.0, 12.5, 74.6),
+    # Goa coast
+    (12.5, 15.8, 73.6),
+    # Konkan / Ratnagiri coast
+    (15.8, 17.5, 73.2),
+    # Mumbai suburban coast
+    (17.5, 19.0, 72.75),
+    # Mumbai city & Thane creek
+    (19.0, 19.3, 72.80),
+    # Gujarat south coast (Surat to Daman)
+    (19.3, 21.0, 72.5),
+    # Gujarat / Saurashtra
+    (21.0, 23.5, 69.5),
+    # Kutch / Sindh
+    (23.5, 25.0, 67.5),
 ]
 
-# Specific coastal exclusion zones (finer detail for Mumbai EEZ region)
-COASTAL_EXCLUSIONS = [
-    # Mumbai city & harbor
-    (18.88, 19.28, 72.78, 73.10),
-    # Nhava Sheva / Navi Mumbai port area  
-    (18.90, 19.05, 73.00, 73.15),
-    # Goa coastline
-    (14.90, 15.75, 73.70, 74.20),
-    # Gujarat coast (Saurashtra)
-    (20.5, 23.5, 68.5, 72.5),
-    # Konkan coast strip
-    (15.5, 20.0, 73.0, 74.5),
-    # Ratnagiri-Sindhudurg coast
-    (15.7, 17.5, 73.2, 73.8),
+# Pakistan coast
+PAKISTAN_COAST = [
+    (24.5, 25.5, 66.5),
+    (25.0, 26.0, 65.5),
+    (26.0, 28.0, 63.0),
 ]
+
+# Oman / UAE / Iran coast (south side of Arabian Sea)
+ARABIAN_COAST = [
+    # Oman
+    (20.0, 24.0, 57.0),
+    # UAE
+    (24.0, 26.5, 54.5),
+    # Iran south coast
+    (25.0, 28.0, 56.0),
+]
+
+# East Africa coast
+AFRICA_EAST_COAST = [
+    # Somalia
+    (0.0, 12.0, 43.0),
+    # Kenya
+    (-5.0, 0.0, 39.5),
+    # Tanzania
+    (-12.0, -5.0, 38.5),
+    # Mozambique
+    (-27.0, -12.0, 34.0),
+]
+
+# Sri Lanka (island - box check)
+SRI_LANKA = (5.9, 9.85, 79.5, 81.9)
+
+# Madagascar (island - box check)
+MADAGASCAR = (-26.0, -11.5, 43.0, 50.6)
+
+
+def _is_in_coastal_strip(lat: float, lon: float, coast_segments: list) -> bool:
+    """Check if point is on land using coastal longitude boundaries."""
+    for lat_min, lat_max, land_lon in coast_segments:
+        if lat_min <= lat <= lat_max and lon >= land_lon:
+            return True  # On land
+    return False
+
+
+def _is_in_island(lat: float, lon: float, box: tuple) -> bool:
+    """Check if point is inside an island bounding box."""
+    lat_min, lat_max, lon_min, lon_max = box
+    return lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
 
 
 def is_strictly_ocean(lat: float, lon: float) -> bool:
     """
-    Checks if a coordinate is in open ocean using lightweight bounding box checks.
-    No heavy numpy/land-mask dependency — works within 512MB RAM.
+    Check if coordinate is in open ocean.
+    Default: True (ocean). Only returns False for known land areas.
+    Memory: ~0 bytes (no datasets loaded).
     """
     try:
         if not (-85.0 <= lat <= 85.0 and -180.0 <= lon <= 180.0):
             return False
-        
-        # Check fine coastal exclusions first (most common check area)
-        for lat_min, lat_max, lon_min, lon_max in COASTAL_EXCLUSIONS:
-            if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-                return False
-        
-        # Check major land masses
-        for lat_min, lat_max, lon_min, lon_max in LAND_BOXES:
-            if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-                return False
-        
-        return True
+
+        # Check Indian west coast (most common check for our operating area)
+        if _is_in_coastal_strip(lat, lon, INDIA_WEST_COAST):
+            return False
+
+        # Check Pakistan coast
+        if _is_in_coastal_strip(lat, lon, PAKISTAN_COAST):
+            return False
+
+        # Check Arabian coast
+        if _is_in_coastal_strip(lat, lon, ARABIAN_COAST):
+            return False
+
+        # Check East Africa coast
+        if _is_in_coastal_strip(lat, lon, AFRICA_EAST_COAST):
+            return False
+
+        # Check islands
+        if _is_in_island(lat, lon, SRI_LANKA):
+            return False
+        if _is_in_island(lat, lon, MADAGASCAR):
+            return False
+
+        # Deep inland check - if lat > 25 and lon > 73, definitely inland India
+        if lat > 25.0 and lon > 73.0 and lon < 97.0:
+            return False
+
+        # Southeast Asia mainland
+        if lat > 5.0 and lon > 95.0 and lon < 110.0:
+            return False
+
+        return True  # Default: ocean
     except Exception:
-        return False
+        return True  # Fail open — don't block vessels on error
 
 
 def calculate_polygon_area(polygon: list[tuple[float, float]]) -> float:
-    # Approximate area in sq km for small polygons
     if len(polygon) < 3: return 0.0
     area = 0.0
     for i in range(len(polygon)):

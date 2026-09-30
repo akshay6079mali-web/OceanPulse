@@ -47,7 +47,10 @@ async def update_vessel_metadata():
             print("Digitraffic metadata poll error:", e)
         await asyncio.sleep(600)
 
+_history_save_counter = 0
+
 def save_vessels_to_history(vessels_dict):
+    global _history_save_counter
     try:
         with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
             cursor = conn.cursor()
@@ -67,6 +70,15 @@ def save_vessels_to_history(vessels_dict):
                 "INSERT INTO ais_history (mmsi, lat, lon, speed, heading, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
                 data_to_insert
             )
+            # Cleanup old history every 50 cycles (~10 minutes)
+            _history_save_counter += 1
+            if _history_save_counter % 50 == 0:
+                cutoff = datetime.fromtimestamp(
+                    datetime.now(timezone.utc).timestamp() - 86400,  # 24 hours
+                    timezone.utc
+                ).isoformat()
+                cursor.execute('DELETE FROM ais_history WHERE timestamp < ?', (cutoff,))
+                print(f'[CLEANUP] Purged history older than 24h')
             conn.commit()
     except Exception as e:
         print("Error saving history to DB:", e)
@@ -137,7 +149,7 @@ async def global_ais_worker():
                             "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                             "trail": trail
                         }
-                        if len(new_vessels) >= 200: break
+                        if len(new_vessels) >= 80: break
                         
                     if new_vessels:
                         live_vessels = new_vessels

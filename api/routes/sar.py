@@ -9,8 +9,6 @@ import sys
 import subprocess
 import glob
 import httpx
-import numpy as np
-from PIL import Image
 import io
 import hashlib
 from typing import Optional
@@ -34,6 +32,8 @@ def generate_sar_quicklook(lat: float = 18.93, lon: float = 72.50):
     Since real-time SAR data requires expensive licensing, we simulate
     backscatter, speckle noise, and slick signatures here.
     """
+    import numpy as np
+    from PIL import Image
     rng = np.random
     width, height = 512, 512
     
