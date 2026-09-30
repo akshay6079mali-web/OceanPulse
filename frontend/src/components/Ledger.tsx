@@ -29,11 +29,16 @@ interface LedgerProps {
 export default function Ledger({ incidents, onSelectIncident, isLoading = false, vessels = [], passes = [], vectors = [], onFlyToTarget, activeMode, token }: LedgerProps) {
   const [activeTab, setActiveTab] = useState<'slicks' | 'ais' | 'sar' | 'weather'>('slicks');
   const [selectedSarScene, setSelectedSarScene] = useState<any>(null);
+  const [selectedSarIncident, setSelectedSarIncident] = useState<any>(null);
   const [sarDetails, setSarDetails] = useState<any>(null);
 
   useEffect(() => {
     if (selectedSarScene && token) {
-      axios.get(`${API_BASE_URL}/api/v1/sar/scene-details?id=${selectedSarScene}`, {
+      const lat = selectedSarIncident?.coordinates?.lat || 18.93;
+      const lon = selectedSarIncident?.coordinates?.lon || 72.50;
+      const area = selectedSarIncident?.area_km2 || 4.5;
+      const mmsi = selectedSarIncident?.suspect_mmsi || 'UNATTRIBUTED';
+      axios.get(`${API_BASE_URL}/api/v1/sar/scene-details?id=${selectedSarScene}&lat=${lat}&lon=${lon}&area=${area}&mmsi=${mmsi}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
         .then(r => setSarDetails(r.data))
@@ -111,7 +116,7 @@ export default function Ledger({ incidents, onSelectIncident, isLoading = false,
                       ) : 'N/A'}
                     </td>
                     <td className="py-2 px-1 text-right">
-                      <button className="tactical-btn text-[#0056b3] hover:text-blue-800" onClick={(e) => { e.stopPropagation(); setSelectedSarScene(incident.scene_id || 'S1A_IW_GRDH_1SDV'); }}>[View SAR]</button>
+                      <button className="tactical-btn text-[#0056b3] hover:text-blue-800" onClick={(e) => { e.stopPropagation(); setSelectedSarIncident(incident); setSelectedSarScene(incident.scene_id || `S1A_IW_${incident.id}`); }}>[View SAR]</button>
                     </td>
                   </tr>
                 ))
