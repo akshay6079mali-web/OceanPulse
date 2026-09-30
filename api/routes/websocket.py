@@ -135,7 +135,7 @@ async def aisstream_worker():
             # If we have buffered vessels, keep them alive
             if vessel_buffer:
                 live_vessels = dict(vessel_buffer)
-            await asyncio.sleep(5)  # Retry in 5 seconds
+            await asyncio.sleep(30)  # Retry in 30 seconds (avoid rate limit)
 
 async def digitraffic_fallback_worker():
     """Fallback: Digitraffic API with offset (only runs if AISStream has no data)."""
@@ -143,10 +143,9 @@ async def digitraffic_fallback_worker():
     url = "https://meri.digitraffic.fi/api/ais/v1/locations"
     
     while True:
-        await asyncio.sleep(15)
-        
         # Only use fallback if AISStream hasn't provided any data
         if len(live_vessels) >= 5:
+            await asyncio.sleep(15)
             continue
             
         try:
@@ -193,6 +192,8 @@ async def digitraffic_fallback_worker():
                         print(f"[Digitraffic Fallback] {len(live_vessels)} vessels")
         except Exception as e:
             print(f"[Digitraffic Fallback] Error: {e}")
+        
+        await asyncio.sleep(12)  # Poll every 12 seconds
 
 async def global_ais_worker():
     """Launch AISStream as primary + Digitraffic as fallback."""
