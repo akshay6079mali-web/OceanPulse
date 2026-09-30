@@ -177,8 +177,15 @@ export default function MapViewer({ vessels, layers, slicks, incoisData, selecte
           const iconHtml = `<svg width="24" height="24" viewBox="0 0 24 24" style="transform: rotate(${v.heading}deg); overflow: visible;"><path d="M12 2L20 20L12 17L4 20L12 2Z" fill="${color}" stroke="white" stroke-width="1.5"/><circle cx="12" cy="12" r="10" fill="none" stroke="${color}" stroke-width="2" style="box-shadow: ${pulseShadow}; display: ${isEEZBreach ? 'block' : 'none'}; animation: ${isEEZBreach ? 'pulse 1s infinite' : 'none'};" /></svg>`;
           const customIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [24, 24], iconAnchor: [12, 12] });
 
-          // Snail trail
-          const historyCoords = v.history ? v.history.map(h => [h.lat, h.lon] as [number, number]) : [];
+          // Snail trail — handle both v.history ({lat,lon}[]) and v.trail ([[lat,lon]][]) formats
+          let historyCoords: [number, number][] = [];
+          if (v.history && v.history.length > 1) {
+            historyCoords = v.history.map((h: any) => [h.lat, h.lon] as [number, number]);
+          } else if (v.trail && (v.trail as any[]).length > 1) {
+            historyCoords = (v.trail as any[]).map((t: any) => 
+              Array.isArray(t) ? [t[0], t[1]] as [number, number] : [t.lat, t.lon] as [number, number]
+            );
+          }
 
           // Generate simulated chart data for recent speed/threat to emulate historical telemetry
           const chartData = [
