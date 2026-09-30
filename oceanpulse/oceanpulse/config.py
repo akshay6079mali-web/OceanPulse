@@ -8,6 +8,9 @@ DB_PATH = os.path.join(DATA_DIR, 'ais_buffer.sqlite3')
 # PostgreSQL connection (Neon) — set DATABASE_URL env var on Render
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
+# AISStream.io API key — real global AIS data (free)
+AISSTREAM_API_KEY = os.getenv("AISSTREAM_API_KEY", "b995e2e00edc1ea50534401d9f33a0d43ec06c8f")
+
 # Geographic bounding boxes (e.g., Mumbai EEZ approx)
 MUMBAI_EEZ_POLYGON = [
     {"lat": 18.60, "lon": 71.90},
