@@ -8,7 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query, s
 from typing import Optional
 from jose import jwt, JWTError
 
-from oceanpulse.oceanpulse.config import JWT_SECRET, ALGORITHM, DB_PATH
+from oceanpulse.oceanpulse.config import JWT_SECRET, ALGORITHM, DB_PATH, DATABASE_URL
 from oceanpulse.oceanpulse.ais_engine import analyze_track
 from oceanpulse.oceanpulse.jurisdiction import check_vessels_in_eez
 from oceanpulse.utils.schema import VesselTrack
@@ -52,34 +52,50 @@ _history_save_counter = 0
 def save_vessels_to_history(vessels_dict):
     global _history_save_counter
     try:
-        with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        data_to_insert = [
+            (
+                b["mmsi"],
+                b["lat"],
+                b["lon"],
+                b.get("speed", 0.0),
+                b.get("heading", 0.0),
+                timestamp
+            )
+            for b in vessels_dict.values()
+        ]
+        
+        _history_save_counter += 1
+        do_cleanup = _history_save_counter % 50 == 0
+        cutoff = datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() - 86400, timezone.utc
+        ).isoformat() if do_cleanup else None
+        
+        if DATABASE_URL:
+            import psycopg2
+            conn = psycopg2.connect(DATABASE_URL)
             cursor = conn.cursor()
-            timestamp = datetime.now(timezone.utc).isoformat()
-            data_to_insert = [
-                (
-                    b["mmsi"],
-                    b["lat"],
-                    b["lon"],
-                    b.get("speed", 0.0),
-                    b.get("heading", 0.0),
-                    timestamp
-                )
-                for b in vessels_dict.values()
-            ]
-            cursor.executemany(
-                "INSERT INTO ais_history (mmsi, lat, lon, speed, heading, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+            from psycopg2.extras import execute_values
+            execute_values(cursor,
+                "INSERT INTO ais_history (mmsi, lat, lon, speed, heading, timestamp) VALUES %s",
                 data_to_insert
             )
-            # Cleanup old history every 50 cycles (~10 minutes)
-            _history_save_counter += 1
-            if _history_save_counter % 50 == 0:
-                cutoff = datetime.fromtimestamp(
-                    datetime.now(timezone.utc).timestamp() - 86400,  # 24 hours
-                    timezone.utc
-                ).isoformat()
-                cursor.execute('DELETE FROM ais_history WHERE timestamp < ?', (cutoff,))
-                print(f'[CLEANUP] Purged history older than 24h')
+            if do_cleanup:
+                cursor.execute('DELETE FROM ais_history WHERE timestamp < %s', (cutoff,))
+                print('[CLEANUP] Purged history older than 24h')
             conn.commit()
+            conn.close()
+        else:
+            with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
+                cursor = conn.cursor()
+                cursor.executemany(
+                    "INSERT INTO ais_history (mmsi, lat, lon, speed, heading, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                    data_to_insert
+                )
+                if do_cleanup:
+                    cursor.execute('DELETE FROM ais_history WHERE timestamp < ?', (cutoff,))
+                    print('[CLEANUP] Purged history older than 24h')
+                conn.commit()
     except Exception as e:
         print("Error saving history to DB:", e)
 
@@ -264,59 +280,59 @@ async def get_history_vessels(
         return list(live_vessels.values())
         
     try:
-        # Calculate target timestamp
         now = datetime.now(timezone.utc)
         target_timestamp = datetime.fromtimestamp(now.timestamp() + (time_offset_hours * 3600), timezone.utc).isoformat()
         
-        with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Find the closest timestamp in the DB that is <= target_timestamp
-            cursor.execute('''
-                SELECT DISTINCT timestamp FROM ais_history 
-                WHERE timestamp <= ? 
-                ORDER BY timestamp DESC LIMIT 1
-            ''', (target_timestamp,))
-            
+        rows = []
+        if DATABASE_URL:
+            import psycopg2
+            import psycopg2.extras
+            conn = psycopg2.connect(DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cursor.execute('SELECT DISTINCT timestamp FROM ais_history WHERE timestamp <= %s ORDER BY timestamp DESC LIMIT 1', (target_timestamp,))
             row = cursor.fetchone()
             if not row:
+                conn.close()
                 return []
-                
             closest_time = row["timestamp"]
-            
-            # Fetch all vessels at that exact timestamp
-            cursor.execute('''
-                SELECT mmsi, lat, lon, speed, heading, timestamp 
-                FROM ais_history 
-                WHERE timestamp = ?
-            ''', (closest_time,))
-            
+            cursor.execute('SELECT mmsi, lat, lon, speed, heading, timestamp FROM ais_history WHERE timestamp = %s', (closest_time,))
             rows = cursor.fetchall()
+            conn.close()
+        else:
+            with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute('SELECT DISTINCT timestamp FROM ais_history WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1', (target_timestamp,))
+                row = cursor.fetchone()
+                if not row:
+                    return []
+                closest_time = row["timestamp"]
+                cursor.execute('SELECT mmsi, lat, lon, speed, heading, timestamp FROM ais_history WHERE timestamp = ?', (closest_time,))
+                rows = cursor.fetchall()
+        
+        tracks = []
+        for r in rows:
+            mmsi = r["mmsi"]
+            meta = VESSEL_METADATA.get(int(mmsi), {}) if mmsi.isdigit() else {}
+            tracks.append(VesselTrack(**{
+                "mmsi": mmsi,
+                "name": meta.get("name") or f"MMSI {mmsi}",
+                "callsign": meta.get("callsign", "N/A"),
+                "destination": meta.get("destination", "AT SEA"),
+                "lat": r["lat"],
+                "lon": r["lon"],
+                "speed": r["speed"],
+                "heading": r["heading"],
+                "timestamp": r["timestamp"],
+                "trail": []
+            }))
             
-            tracks = []
-            for r in rows:
-                mmsi = r["mmsi"]
-                meta = VESSEL_METADATA.get(int(mmsi), {}) if mmsi.isdigit() else {}
-                tracks.append(VesselTrack(**{
-                    "mmsi": mmsi,
-                    "name": meta.get("name") or f"MMSI {mmsi}",
-                    "callsign": meta.get("callsign", "N/A"),
-                    "destination": meta.get("destination", "AT SEA"),
-                    "lat": r["lat"],
-                    "lon": r["lon"],
-                    "speed": r["speed"],
-                    "heading": r["heading"],
-                    "timestamp": r["timestamp"],
-                    "trail": [] # No trails for history mode for performance
-                }))
-                
-            if tracks:
-                analyzed = analyze_track(tracks)
-                check_vessels_in_eez(analyzed)
-                return [t.model_dump() for t in analyzed]
-                
-            return []
+        if tracks:
+            analyzed = analyze_track(tracks)
+            check_vessels_in_eez(analyzed)
+            return [t.model_dump() for t in analyzed]
+            
+        return []
     except Exception as e:
         print("History API error:", e)
         return []

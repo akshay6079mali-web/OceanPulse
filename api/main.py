@@ -14,13 +14,72 @@ from .middleware.audit import AuditMiddleware
 from .auth import create_access_token
 from .auth import get_password_hash, verify_password
 from oceanpulse.oceanpulse.ais_buffer import get_user_hash, is_db_healthy
-from oceanpulse.oceanpulse.config import DB_PATH, DATA_DIR
+from oceanpulse.oceanpulse.config import DB_PATH, DATA_DIR, DATABASE_URL
 
 from .routes import websocket, analyze, slicks, incois, sar
 from .routes.websocket import global_ais_worker
 
 def auto_init_database():
-    """Auto-create database tables and admin user on startup if they don't exist."""
+    """Auto-create database tables and admin user on startup."""
+    if DATABASE_URL:
+        _init_postgres()
+    else:
+        _init_sqlite()
+
+def _init_postgres():
+    """Initialize PostgreSQL (Neon) tables."""
+    import psycopg2
+    conn = psycopg2.connect(DATABASE_URL)
+    c = conn.cursor()
+    
+    # Create tables if not exist
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password_hash TEXT NOT NULL
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id SERIAL PRIMARY KEY,
+            timestamp TEXT,
+            operator TEXT,
+            action TEXT,
+            status_code INTEGER,
+            latency_ms REAL
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS ais_history (
+            mmsi TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            lat REAL NOT NULL,
+            lon REAL NOT NULL,
+            speed REAL,
+            heading REAL,
+            threat_score REAL
+        )
+    ''')
+    
+    # Create index if not exists
+    c.execute('''
+        CREATE INDEX IF NOT EXISTS idx_time_mmsi ON ais_history(timestamp DESC, mmsi)
+    ''')
+    
+    # Insert admin user if not exists
+    c.execute("SELECT 1 FROM users WHERE username='admin'")
+    if not c.fetchone():
+        import bcrypt
+        pw_hash = bcrypt.hashpw(b'password123', bcrypt.gensalt()).decode('utf-8')
+        c.execute('INSERT INTO users VALUES (%s, %s)', ('admin', pw_hash))
+        print('[INIT] Created admin account in PostgreSQL')
+    
+    conn.commit()
+    conn.close()
+    print('[INIT] PostgreSQL (Neon) ready')
+
+def _init_sqlite():
+    """Initialize SQLite tables (local dev fallback)."""
     os.makedirs(DATA_DIR, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -56,13 +115,11 @@ def auto_init_database():
     
     conn.commit()
     conn.close()
-    print('[INIT] Database ready at', DB_PATH)
+    print('[INIT] SQLite ready at', DB_PATH)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Auto-init database before anything else
     auto_init_database()
-    
     app.state.http_client = httpx.AsyncClient(timeout=10.0)
     app.state.ais_poller_task = asyncio.create_task(global_ais_worker())
     yield
@@ -71,8 +128,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="OceanPulse API", lifespan=lifespan)
 
-# CORS — allow all origins for deployment flexibility
-# In production, restrict to your Render domain
 allowed_origins = os.getenv("CORS_ORIGINS", "*")
 if allowed_origins == "*":
     origins = ["*"]
@@ -110,17 +165,14 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 @app.get("/health")
 async def health_check():
     db_healthy = is_db_healthy()
-    return {"status": "ok", "db_wal_status": "ok" if db_healthy else "error"}
+    return {"status": "ok", "db": "postgres" if DATABASE_URL else "sqlite", "healthy": db_healthy}
 
 # --- Serve frontend static files ---
-# The built frontend lives in frontend/dist/
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
 
 if os.path.isdir(FRONTEND_DIR):
-    # Mount static assets (JS, CSS, images)
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="static-assets")
     
-    # Serve other static files (favicon, icons, etc.)
     @app.get("/favicon.svg")
     async def favicon():
         return FileResponse(os.path.join(FRONTEND_DIR, "favicon.svg"))
@@ -129,13 +181,10 @@ if os.path.isdir(FRONTEND_DIR):
     async def icons():
         return FileResponse(os.path.join(FRONTEND_DIR, "icons.svg"))
     
-    # SPA fallback — serve index.html for all unmatched routes
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        # Don't intercept API routes
         if full_path.startswith("api/") or full_path.startswith("token") or full_path.startswith("health"):
             raise HTTPException(status_code=404)
-        
         file_path = os.path.join(FRONTEND_DIR, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
