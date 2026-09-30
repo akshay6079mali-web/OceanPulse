@@ -9,7 +9,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query, s
 from typing import Optional
 from jose import jwt, JWTError
 
-from oceanpulse.oceanpulse.config import JWT_SECRET, ALGORITHM, DB_PATH, DATABASE_URL, AISSTREAM_API_KEY
+from oceanpulse.oceanpulse.config import JWT_SECRET, ALGORITHM, DB_PATH, DATABASE_URL
 from oceanpulse.oceanpulse.ais_engine import analyze_track
 from oceanpulse.oceanpulse.jurisdiction import check_vessels_in_eez
 from oceanpulse.utils.schema import VesselTrack
@@ -21,7 +21,7 @@ live_vessels = {}
 VESSEL_METADATA = {}
 
 async def update_vessel_metadata():
-    """Fetch vessel metadata from Digitraffic (names, callsigns) as supplementary data."""
+    """Fetch vessel metadata (names, callsigns, destinations) from Digitraffic."""
     global VESSEL_METADATA
     url = "https://meri.digitraffic.fi/api/ais/v1/vessels"
     headers = {"Accept-Encoding": "gzip", "Digitraffic-User": "OceanPulse/1.0"}
@@ -38,121 +38,28 @@ async def update_vessel_metadata():
                                 "callsign": v.get("callSign", "N/A"),
                                 "destination": v.get("destination", "AT SEA").strip() or "AT SEA"
                             }
+                    print(f"[Metadata] Loaded {len(VESSEL_METADATA)} vessel names")
         except Exception:
             pass
         await asyncio.sleep(300)
 
-async def aisstream_worker():
-    """Primary AIS data source: AISStream.io WebSocket — REAL global vessel data."""
+async def global_ais_worker():
+    """
+    Primary AIS worker using Digitraffic (Finnish Maritime Authority).
+    Real AIS data — no rate limits, no API key needed, 100% free.
+    Vessels are offset to Mumbai/Arabian Sea for India EEZ monitoring.
+    """
     global live_vessels
-    import websockets as ws_lib
-    
-    # Bounding box: India's west coast + Arabian Sea (wide coverage)
-    subscription = {
-        "APIKey": AISSTREAM_API_KEY,
-        "BoundingBoxes": [
-            [[8.0, 60.0], [25.0, 80.0]]   # Arabian Sea + India west coast
-        ],
-        "FilterMessageTypes": ["PositionReport"]
-    }
-    
-    vessel_buffer = {}
-    last_save = time.time()
-    
-    while True:
-        try:
-            print("[AISStream] Connecting to wss://stream.aisstream.io/v0/stream ...")
-            async with ws_lib.connect("wss://stream.aisstream.io/v0/stream", ping_interval=20, ping_timeout=10) as websocket:
-                await websocket.send(json.dumps(subscription))
-                print("[AISStream] Subscribed — Mumbai/Arabian Sea bounding box active")
-                
-                async for raw_msg in websocket:
-                    try:
-                        msg = json.loads(raw_msg)
-                        if msg.get("MessageType") != "PositionReport":
-                            continue
-                        
-                        meta = msg.get("MetaData", {})
-                        pos = msg.get("Message", {}).get("PositionReport", {})
-                        
-                        mmsi = str(meta.get("MMSI", ""))
-                        if not mmsi or mmsi == "0":
-                            continue
-                        
-                        lat = meta.get("latitude", 0)
-                        lon = meta.get("longitude", 0)
-                        sog = pos.get("Sog", 0) / 10.0 if pos.get("Sog", 0) > 100 else pos.get("Sog", 0)
-                        cog = pos.get("Cog", 0) / 10.0 if pos.get("Cog", 0) > 360 else pos.get("Cog", 0)
-                        heading = pos.get("TrueHeading", cog)
-                        if heading == 511:  # 511 = not available
-                            heading = cog
-                        
-                        if sog < 0.3:
-                            continue
-                        
-                        if not is_strictly_ocean(lat, lon):
-                            continue
-                        
-                        # Get existing trail
-                        existing = vessel_buffer.get(mmsi, live_vessels.get(mmsi, {}))
-                        trail = existing.get("trail", [])
-                        
-                        ship_name = meta.get("ShipName", "").strip()
-                        if not ship_name or ship_name == "":
-                            ship_name = f"MMSI {mmsi}"
-                        
-                        vessel_buffer[mmsi] = {
-                            "mmsi": mmsi,
-                            "name": ship_name,
-                            "callsign": meta.get("CallSign", "N/A") if meta.get("CallSign") else "N/A",
-                            "destination": meta.get("Destination", "AT SEA").strip() if meta.get("Destination") else "AT SEA",
-                            "lat": round(lat, 6),
-                            "lon": round(lon, 6),
-                            "speed": round(sog, 1),
-                            "heading": round(heading, 1),
-                            "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-                            "trail": (trail + [[round(lat, 6), round(lon, 6)]])[-8:]
-                        }
-                        
-                        # Cap at 80 vessels
-                        if len(vessel_buffer) > 80:
-                            oldest = sorted(vessel_buffer.keys(), key=lambda k: vessel_buffer[k].get("timestamp", ""))
-                            for old_mmsi in oldest[:len(vessel_buffer) - 80]:
-                                del vessel_buffer[old_mmsi]
-                        
-                        # Update live_vessels and save to history every 12 seconds
-                        if vessel_buffer and (time.time() - last_save) > 12:
-                            live_vessels = dict(vessel_buffer)
-                            save_vessels_to_history(live_vessels)
-                            last_save = time.time()
-                            print(f"[AISStream] Live vessels: {len(live_vessels)}")
-                    
-                    except (json.JSONDecodeError, KeyError) as e:
-                        continue
-                        
-        except Exception as e:
-            print(f"[AISStream] Connection error: {e}")
-            # If we have buffered vessels, keep them alive
-            if vessel_buffer:
-                live_vessels = dict(vessel_buffer)
-            await asyncio.sleep(30)  # Retry in 30 seconds (avoid rate limit)
-
-async def digitraffic_fallback_worker():
-    """Fallback: Digitraffic API with offset (only runs if AISStream has no data)."""
-    global live_vessels
+    asyncio.create_task(update_vessel_metadata())
     url = "https://meri.digitraffic.fi/api/ais/v1/locations"
     
     while True:
-        # Only use fallback if AISStream hasn't provided any data
-        if len(live_vessels) >= 5:
-            await asyncio.sleep(15)
-            continue
-            
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers={"Accept-Encoding": "gzip", "Digitraffic-User": "OceanPulse/1.0"}, timeout=10.0)
                 if response.status_code == 200:
                     data = response.json()
+                    
                     new_vessels = {}
                     for v in data.get('features', []):
                         props = v.get('properties', {})
@@ -162,9 +69,13 @@ async def digitraffic_fallback_worker():
                         mmsi = str(props.get('mmsi'))
                         sog = props.get('sog', 0)
                         cog = props.get('cog', 0)
+                        
                         if sog < 0.5: continue
                         
                         raw_lon, raw_lat = geom.get('coordinates', [0, 0])
+                        
+                        # Map vessels to Mumbai/Arabian Sea EEZ
+                        # Baltic Sea (~60N, 20E) → Arabian Sea (~20N, 69E)
                         lat = round(raw_lat + (-40), 6)
                         lon = round(raw_lon + 49, 6)
                         
@@ -172,34 +83,49 @@ async def digitraffic_fallback_worker():
                         
                         existing = live_vessels.get(mmsi, {})
                         trail = existing.get("trail", [])
-                        meta_info = VESSEL_METADATA.get(int(mmsi), {})
+                        
+                        meta = VESSEL_METADATA.get(int(mmsi), {})
                         
                         new_vessels[mmsi] = {
                             "mmsi": mmsi,
-                            "name": meta_info.get("name") or f"MMSI {mmsi}",
-                            "callsign": meta_info.get("callsign", "N/A"),
-                            "destination": meta_info.get("destination", "AT SEA"),
-                            "lat": lat, "lon": lon,
-                            "speed": sog, "heading": cog,
+                            "name": meta.get("name") or f"MMSI {mmsi}",
+                            "callsign": meta.get("callsign", "N/A"),
+                            "destination": meta.get("destination", "AT SEA"),
+                            "lat": lat,
+                            "lon": lon,
+                            "speed": sog,
+                            "heading": cog,
                             "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-                            "trail": (trail + [[lat, lon]])[-8:]
+                            "trail": trail
                         }
                         if len(new_vessels) >= 80: break
-                    
+                        
                     if new_vessels:
                         live_vessels = new_vessels
-                        save_vessels_to_history(live_vessels)
-                        print(f"[Digitraffic Fallback] {len(live_vessels)} vessels")
+                        print(f"[AIS] {len(live_vessels)} live vessels")
         except Exception as e:
-            print(f"[Digitraffic Fallback] Error: {e}")
-        
-        await asyncio.sleep(12)  # Poll every 12 seconds
+            print("AIS poll error:", e)
 
-async def global_ais_worker():
-    """Launch AISStream as primary + Digitraffic as fallback."""
-    asyncio.create_task(update_vessel_metadata())
-    asyncio.create_task(digitraffic_fallback_worker())
-    await aisstream_worker()
+        save_vessels_to_history(live_vessels)
+
+        # Simulate vessel movement between API polls (smooth animation)
+        for _ in range(10):
+            for mmsi, b in live_vessels.items():
+                if float(b["speed"]) >= 0.5:
+                    dist_m = float(b["speed"]) * 0.514444 * 1.0
+                    rad = math.radians(float(b["heading"]))
+                    cand_lat = b["lat"] + (dist_m * math.cos(rad)) / 111320.0
+                    cand_lon = b["lon"] + (dist_m * math.sin(rad)) / (111320.0 * max(0.2, math.cos(math.radians(b["lat"]))))
+                    
+                    if is_strictly_ocean(cand_lat, cand_lon):
+                        b["lat"] = round(cand_lat, 6)
+                        b["lon"] = round(cand_lon, 6)
+                    else:
+                        b["heading"] = (float(b["heading"]) + 160 + (hash(mmsi) % 40)) % 360
+                
+                b["trail"] = (b.get("trail", []) + [[b["lat"], b["lon"]]])[-8:]
+                b["timestamp"] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+            await asyncio.sleep(1.0)
 
 def save_vessels_to_history(vessels):
     """Save current vessel positions to history database for DVR backtrack."""
