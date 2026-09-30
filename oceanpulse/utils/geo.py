@@ -1,20 +1,76 @@
-from global_land_mask import globe
+"""
+Lightweight ocean/land check using coastline bounding boxes.
+Replaces global-land-mask (which loads ~200MB NASA dataset into RAM)
+to stay within Render's 512MB free tier.
+
+Uses known land bounding boxes around the Indian Ocean / Arabian Sea region
+where OceanPulse operates. Any point inside a land box is rejected.
+"""
+
+import math
+
+# Major land masses near the operating area (lat_min, lat_max, lon_min, lon_max)
+LAND_BOXES = [
+    # Indian subcontinent (west coast - Mumbai, Goa, Kerala)
+    (8.0, 37.0, 68.0, 97.5),
+    # Sri Lanka
+    (5.9, 9.85, 79.5, 81.9),
+    # Maldives main islands (approximate)
+    (0.5, 7.1, 72.6, 73.8),
+    # Arabian Peninsula (Oman, UAE, Saudi)
+    (12.0, 32.0, 34.0, 60.0),
+    # East Africa coast (Somalia, Kenya, Tanzania)
+    (-12.0, 12.0, 29.0, 52.0),
+    # Madagascar
+    (-26.0, -11.5, 43.0, 50.6),
+    # Southeast Asia (Myanmar, Thailand, Malaysia)
+    (-8.0, 28.0, 92.0, 141.0),
+    # Pakistan
+    (23.5, 37.0, 60.0, 77.5),
+    # Iran
+    (25.0, 40.0, 44.0, 63.5),
+]
+
+# Specific coastal exclusion zones (finer detail for Mumbai EEZ region)
+COASTAL_EXCLUSIONS = [
+    # Mumbai city & harbor
+    (18.88, 19.28, 72.78, 73.10),
+    # Nhava Sheva / Navi Mumbai port area  
+    (18.90, 19.05, 73.00, 73.15),
+    # Goa coastline
+    (14.90, 15.75, 73.70, 74.20),
+    # Gujarat coast (Saurashtra)
+    (20.5, 23.5, 68.5, 72.5),
+    # Konkan coast strip
+    (15.5, 20.0, 73.0, 74.5),
+    # Ratnagiri-Sindhudurg coast
+    (15.7, 17.5, 73.2, 73.8),
+]
+
 
 def is_strictly_ocean(lat: float, lon: float) -> bool:
     """
-    Checks if a coordinate is strictly in open ocean using NASA's global land mask.
-    Uses a single-point check (no buffer) to allow more coastal vessels through.
+    Checks if a coordinate is in open ocean using lightweight bounding box checks.
+    No heavy numpy/land-mask dependency — works within 512MB RAM.
     """
     try:
         if not (-85.0 <= lat <= 85.0 and -180.0 <= lon <= 180.0):
             return False
-        # Single-point ocean check — buffer removed to stop over-filtering coastal vessels
-        return bool(globe.is_ocean(lat, lon))
+        
+        # Check fine coastal exclusions first (most common check area)
+        for lat_min, lat_max, lon_min, lon_max in COASTAL_EXCLUSIONS:
+            if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+                return False
+        
+        # Check major land masses
+        for lat_min, lat_max, lon_min, lon_max in LAND_BOXES:
+            if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+                return False
+        
+        return True
     except Exception:
         return False
 
-
-import math
 
 def calculate_polygon_area(polygon: list[tuple[float, float]]) -> float:
     # Approximate area in sq km for small polygons
