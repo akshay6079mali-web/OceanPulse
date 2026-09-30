@@ -83,8 +83,10 @@ async def global_ais_worker():
                         existing = live_vessels.get(mmsi)
                         
                         if existing:
-                            # KEEP existing simulated position — only update speed/heading
-                            # This prevents backtrack from bouncing between API and simulated positions
+                            # Blend: 70% simulated position + 30% real API position
+                            # This prevents drift-off while still showing movement
+                            existing["lat"] = round(existing["lat"] * 0.7 + lat * 0.3, 6)
+                            existing["lon"] = round(existing["lon"] * 0.7 + lon * 0.3, 6)
                             existing["speed"] = sog
                             existing["heading"] = cog
                             existing["timestamp"] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -112,16 +114,17 @@ async def global_ais_worker():
         except Exception as e:
             print("AIS poll error:", e)
 
-        save_vessels_to_history(live_vessels)
-
         # Simulate vessel movement between API polls
-        # Multiplier = 50x real speed so movement is VISIBLE on the map during backtrack
+        # 5x real speed = visible on map but still realistic looking
+        import random
         for tick in range(10):
             for mmsi, b in live_vessels.items():
                 if float(b["speed"]) >= 0.5:
-                    # 50x multiplier: 10 knots → visible ~0.005° per tick
-                    dist_m = float(b["speed"]) * 0.514444 * 50.0
-                    rad = math.radians(float(b["heading"]))
+                    dist_m = float(b["speed"]) * 0.514444 * 5.0
+                    # Add ±15° random wobble for natural movement
+                    wobble = random.uniform(-15, 15)
+                    heading = float(b["heading"]) + wobble
+                    rad = math.radians(heading)
                     cand_lat = b["lat"] + (dist_m * math.cos(rad)) / 111320.0
                     cand_lon = b["lon"] + (dist_m * math.sin(rad)) / (111320.0 * max(0.2, math.cos(math.radians(b["lat"]))))
                     
@@ -135,7 +138,7 @@ async def global_ais_worker():
                 b["timestamp"] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             await asyncio.sleep(1.0)
         
-        # Save AFTER movement — so history has different positions each cycle
+        # Save AFTER movement — history captures moved positions
         save_vessels_to_history(live_vessels)
 
 def save_vessels_to_history(vessels):

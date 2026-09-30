@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Polygon, Marker, Popup, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, WMSTileLayer, Polygon, Marker, Popup, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import type { VesselTrack } from '../hooks/useAISStream';
@@ -134,9 +134,11 @@ export default function MapViewer({ vessels, layers, slicks, incoisData, selecte
   return (
     <div className="map-layer">
       <MapContainer center={[18.9, 72.8]} zoom={9} style={{ height: '100%', width: '100%' }} zoomControl={false} preferCanvas={true}>
-        <TileLayer
-          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-          attribution="Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ"
+        <WMSTileLayer
+          url="https://bhuvan-vec1.nrsc.gov.in/bhuvan/gwc/service/wms"
+          layers="india3"
+          format="image/jpeg"
+          attribution="ISRO Bhuvan"
         />
         <MapController selectedIncident={selectedIncident} />
         <ZoneDrawer 
