@@ -135,8 +135,8 @@ export default function MapViewer({ vessels, layers, slicks, incoisData, selecte
     <div className="map-layer">
       <MapContainer center={[18.9, 72.8]} zoom={9} style={{ height: '100%', width: '100%' }} zoomControl={false} preferCanvas={true}>
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-          attribution="&copy; OpenStreetMap contributors &copy; CARTO"
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+          attribution="Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ"
         />
         <MapController selectedIncident={selectedIncident} />
         <ZoneDrawer 
