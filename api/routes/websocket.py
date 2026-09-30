@@ -274,46 +274,90 @@ async def get_history_vessels(
     current_user: str = Depends(get_current_user)
 ):
     """
-    Returns the closest historical snapshot of vessels for the requested time offset.
+    Returns historical snapshot of vessels with trail data for backtrack visualization.
+    Trail = last 10 positions before the requested time for each vessel.
     """
     if time_offset_hours >= 0:
         return list(live_vessels.values())
         
     try:
         now = datetime.now(timezone.utc)
-        target_timestamp = datetime.fromtimestamp(now.timestamp() + (time_offset_hours * 3600), timezone.utc).isoformat()
+        target_ts = datetime.fromtimestamp(now.timestamp() + (time_offset_hours * 3600), timezone.utc).isoformat()
+        # Trail window: 10 minutes before target time
+        trail_start_ts = datetime.fromtimestamp(now.timestamp() + (time_offset_hours * 3600) - 600, timezone.utc).isoformat()
         
         rows = []
+        trail_rows = []
+        
         if DATABASE_URL:
             import psycopg2
             import psycopg2.extras
             conn = psycopg2.connect(DATABASE_URL)
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cursor.execute('SELECT DISTINCT timestamp FROM ais_history WHERE timestamp <= %s ORDER BY timestamp DESC LIMIT 1', (target_timestamp,))
+            
+            # Find closest snapshot
+            cursor.execute('SELECT DISTINCT timestamp FROM ais_history WHERE timestamp <= %s ORDER BY timestamp DESC LIMIT 1', (target_ts,))
             row = cursor.fetchone()
             if not row:
                 conn.close()
                 return []
             closest_time = row["timestamp"]
+            
+            # Get vessels at closest time
             cursor.execute('SELECT mmsi, lat, lon, speed, heading, timestamp FROM ais_history WHERE timestamp = %s', (closest_time,))
             rows = cursor.fetchall()
+            
+            # Get trail data: all positions for these vessels in the trail window
+            if rows:
+                mmsi_list = list(set(r["mmsi"] for r in rows))
+                cursor.execute(
+                    'SELECT mmsi, lat, lon, timestamp FROM ais_history WHERE mmsi = ANY(%s) AND timestamp >= %s AND timestamp <= %s ORDER BY timestamp ASC',
+                    (mmsi_list, trail_start_ts, closest_time)
+                )
+                trail_rows = cursor.fetchall()
+            
             conn.close()
         else:
             with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                cursor.execute('SELECT DISTINCT timestamp FROM ais_history WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1', (target_timestamp,))
+                
+                cursor.execute('SELECT DISTINCT timestamp FROM ais_history WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1', (target_ts,))
                 row = cursor.fetchone()
                 if not row:
                     return []
                 closest_time = row["timestamp"]
+                
                 cursor.execute('SELECT mmsi, lat, lon, speed, heading, timestamp FROM ais_history WHERE timestamp = ?', (closest_time,))
                 rows = cursor.fetchall()
+                
+                # Get trail data
+                if rows:
+                    mmsi_list = list(set(r["mmsi"] for r in rows))
+                    placeholders = ','.join('?' * len(mmsi_list))
+                    cursor.execute(
+                        f'SELECT mmsi, lat, lon, timestamp FROM ais_history WHERE mmsi IN ({placeholders}) AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC',
+                        mmsi_list + [trail_start_ts, closest_time]
+                    )
+                    trail_rows = cursor.fetchall()
+        
+        # Build trail lookup: mmsi -> list of {lat, lon}
+        trail_map = {}
+        for tr in trail_rows:
+            mmsi = tr["mmsi"]
+            if mmsi not in trail_map:
+                trail_map[mmsi] = []
+            trail_map[mmsi].append([tr["lat"], tr["lon"]])
+        
+        # Keep only last 10 trail points per vessel
+        for mmsi in trail_map:
+            trail_map[mmsi] = trail_map[mmsi][-10:]
         
         tracks = []
         for r in rows:
             mmsi = r["mmsi"]
             meta = VESSEL_METADATA.get(int(mmsi), {}) if mmsi.isdigit() else {}
+            vessel_trail = trail_map.get(mmsi, [[r["lat"], r["lon"]]])
             tracks.append(VesselTrack(**{
                 "mmsi": mmsi,
                 "name": meta.get("name") or f"MMSI {mmsi}",
@@ -324,7 +368,7 @@ async def get_history_vessels(
                 "speed": r["speed"],
                 "heading": r["heading"],
                 "timestamp": r["timestamp"],
-                "trail": []
+                "trail": vessel_trail
             }))
             
         if tracks:
@@ -335,4 +379,7 @@ async def get_history_vessels(
         return []
     except Exception as e:
         print("History API error:", e)
+        import traceback
+        traceback.print_exc()
         return []
+

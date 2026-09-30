@@ -24,6 +24,7 @@ export interface VesselTrack {
   threat_score?: number;
   in_eez?: boolean;
   history?: { lat: number, lon: number }[];
+  trail?: number[][] | { lat: number, lon: number }[];
   anomalies?: AnomalyFlag[];
 }
 
@@ -113,9 +114,25 @@ export function useAISStream(token: string | null) {
     };
   }, [token]);
 
-  // --- 2. History Fetching Effect (with debounce + abort) ---
+  // --- 2. History Fetching Effect (with debounce + abort + cache) ---
+  const historyCacheRef = useRef<Map<string, any[]>>(new Map());
+
   useEffect(() => {
     if (!token || dvrTimeOffset >= 0) return;
+
+    // Round to nearest minute for cache key
+    const cacheKey = (Math.round(dvrTimeOffset * 60) / 60).toFixed(4);
+    
+    // Check cache first
+    const cached = historyCacheRef.current.get(cacheKey);
+    if (cached) {
+      const historyBatch: Record<string, VesselTrack> = {};
+      for (const v of cached) {
+        historyBatch[v.mmsi] = v;
+      }
+      useAppStore.setState({ vessels: historyBatch });
+      return;
+    }
 
     // BUG 3 FIX: Cancel any in-flight request
     if (abortRef.current) {
@@ -146,23 +163,23 @@ export function useAISStream(token: string | null) {
 
         const data: VesselTrack[] = res.data;
         const historyBatch: Record<string, VesselTrack> = {};
-        const prevVessels = useAppStore.getState().vessels;
         
         for (const v of data) {
-          const prev = prevVessels[v.mmsi];
-          let newHistory = [{ lat: v.lat, lon: v.lon }];
-          
-          if (prev?.history && prev.history.length > 0) {
-            const lastPos = prev.history[prev.history.length - 1];
-            const dist = Math.hypot(lastPos.lat - v.lat, lastPos.lon - v.lon);
-            if (dist < 0.05) { // about 5km — maintain continuous trail
-              newHistory = [...prev.history, { lat: v.lat, lon: v.lon }].slice(-5);
-            }
+          // Trail data now comes from backend history API
+          if (!v.history && v.trail) {
+            v.history = (v.trail as any[]).map((t: any) => 
+              Array.isArray(t) ? { lat: t[0], lon: t[1] } : t
+            );
           }
-          
-          v.history = newHistory;
           historyBatch[v.mmsi] = v;
         }
+
+        // Cache this result (keep max 50 entries)
+        if (historyCacheRef.current.size > 50) {
+          const firstKey = historyCacheRef.current.keys().next().value;
+          if (firstKey) historyCacheRef.current.delete(firstKey);
+        }
+        historyCacheRef.current.set(cacheKey, data);
 
         // Direct overwrite of the vessels state when scrubbing history
         useAppStore.setState({ vessels: historyBatch });
@@ -177,6 +194,13 @@ export function useAISStream(token: string | null) {
       if (abortRef.current) abortRef.current.abort();
     };
   }, [dvrTimeOffset, token]);
+
+  // Clear cache when going back to live
+  useEffect(() => {
+    if (dvrTimeOffset >= 0) {
+      historyCacheRef.current.clear();
+    }
+  }, [dvrTimeOffset >= 0]);
 
   return { isBackendOffline };
 }
