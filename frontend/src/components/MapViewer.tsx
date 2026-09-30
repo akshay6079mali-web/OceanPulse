@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, WMSTileLayer, Polygon, Marker, Popup, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Polygon, Marker, Popup, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import type { VesselTrack } from '../hooks/useAISStream';
@@ -134,11 +134,9 @@ export default function MapViewer({ vessels, layers, slicks, incoisData, selecte
   return (
     <div className="map-layer">
       <MapContainer center={[18.9, 72.8]} zoom={9} style={{ height: '100%', width: '100%' }} zoomControl={false} preferCanvas={true}>
-        <WMSTileLayer
-          url="https://bhuvan-vec1.nrsc.gov.in/bhuvan/gwc/service/wms"
-          layers="india3"
-          format="image/jpeg"
-          attribution="ISRO Bhuvan"
+        <TileLayer
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          attribution="&copy; OpenStreetMap contributors &copy; CARTO"
         />
         <MapController selectedIncident={selectedIncident} />
         <ZoneDrawer 
@@ -222,8 +220,8 @@ export default function MapViewer({ vessels, layers, slicks, incoisData, selecte
                         ))}
                       </div>
                     )}
-                    <div className="h-[60px] min-h-[60px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[60px] min-h-[60px] w-full">
+                      <ResponsiveContainer width="99%" height="100%">
                         <AreaChart data={chartData}>
                           <XAxis dataKey="time" hide />
                           <YAxis hide domain={['auto', 'auto']} />
