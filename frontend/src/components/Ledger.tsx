@@ -46,7 +46,7 @@ export default function Ledger({ incidents, onSelectIncident, isLoading = false,
     } else {
       setSarDetails(null);
     }
-  }, [selectedSarScene, token]);
+  }, [selectedSarScene, selectedSarIncident, token]);
 
   const handleExport = () => {
     if (token) {
@@ -173,7 +173,7 @@ export default function Ledger({ incidents, onSelectIncident, isLoading = false,
                     <td className="py-2 px-1">{p.id}</td>
                     <td className="py-2 px-1 text-slate-900 font-medium">{p.name}</td>
                     <td className="py-2 px-1 text-right">{new Date(p.timestamp).toUTCString()}</td>
-                    <td className="py-2 px-1 text-right"><button className="tactical-btn text-[#0056b3] hover:text-blue-800" onClick={(e) => { e.stopPropagation(); setSelectedSarScene(p.id); }}>[View SAR Data]</button></td>
+                    <td className="py-2 px-1 text-right"><button className="tactical-btn text-[#0056b3] hover:text-blue-800" onClick={(e) => { e.stopPropagation(); setSelectedSarIncident({ coordinates: { lat: 18.93, lon: 72.50 }, area_km2: 4.5 }); setSelectedSarScene(p.id); }}>[View SAR Data]</button></td>
                   </tr>
                 ))
               )}
@@ -223,7 +223,7 @@ export default function Ledger({ incidents, onSelectIncident, isLoading = false,
             </h2>
             <div className="grid grid-cols-2 gap-6">
               <div>
-                <img src={`${API_BASE_URL}${sarDetails.quicklook_url}?token=${token}&v=${Date.now()}`} alt="SAR Quicklook" className="w-full border border-slate-200 object-contain bg-slate-50 h-64 mb-4 rounded" />
+                <img src={`${API_BASE_URL}${sarDetails.quicklook_url}${sarDetails.quicklook_url.includes('?') ? '&' : '?'}token=${token}&v=${Date.now()}`} alt="SAR Quicklook" className="w-full border border-slate-200 object-contain bg-slate-50 h-64 mb-4 rounded" onError={(e) => { (e.target as HTMLImageElement).src = ''; (e.target as HTMLImageElement).alt = 'SAR image loading...'; }} />
                 <div className="flex gap-2">
                   <button className="flex-1 bg-[#0056b3] text-white font-bold font-mono py-2 rounded hover:bg-blue-800 flex items-center justify-center gap-2 transition" onClick={() => window.open(`${API_BASE_URL}${sarDetails.report_url}?token=${token}`, '_blank')}>
                     <Download className="w-4 h-4" /> EXPORT LEGAL REPORT
