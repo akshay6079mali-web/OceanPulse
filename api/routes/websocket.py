@@ -108,11 +108,13 @@ async def global_ais_worker():
 
         save_vessels_to_history(live_vessels)
 
-        # Simulate vessel movement between API polls (smooth animation)
-        for _ in range(10):
+        # Simulate vessel movement between API polls
+        # Multiplier = 50x real speed so movement is VISIBLE on the map during backtrack
+        for tick in range(10):
             for mmsi, b in live_vessels.items():
                 if float(b["speed"]) >= 0.5:
-                    dist_m = float(b["speed"]) * 0.514444 * 1.0
+                    # 50x multiplier: 10 knots → visible ~0.005° per tick
+                    dist_m = float(b["speed"]) * 0.514444 * 50.0
                     rad = math.radians(float(b["heading"]))
                     cand_lat = b["lat"] + (dist_m * math.cos(rad)) / 111320.0
                     cand_lon = b["lon"] + (dist_m * math.sin(rad)) / (111320.0 * max(0.2, math.cos(math.radians(b["lat"]))))
@@ -126,6 +128,9 @@ async def global_ais_worker():
                 b["trail"] = (b.get("trail", []) + [[b["lat"], b["lon"]]])[-8:]
                 b["timestamp"] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             await asyncio.sleep(1.0)
+        
+        # Save AFTER movement — so history has different positions each cycle
+        save_vessels_to_history(live_vessels)
 
 def save_vessels_to_history(vessels):
     """Save current vessel positions to history database for DVR backtrack."""
